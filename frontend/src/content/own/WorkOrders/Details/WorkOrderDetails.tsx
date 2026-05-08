@@ -32,6 +32,7 @@ import {
   useState
 } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useSearchParams } from 'react-router-dom';
 import EditTwoToneIcon from '@mui/icons-material/EditTwoTone';
 import DeleteTwoToneIcon from '@mui/icons-material/DeleteTwoTone';
 import AddTimeModal from './AddTimeModal';
@@ -93,7 +94,12 @@ import FilesList from '../../components/FilesList';
 import { PlanFeature } from '../../../../models/owns/subscriptionPlan';
 import PartQuantitiesList from '../../components/PartQuantitiesList';
 import AddFileModal from './AddFileModal';
+import CommentsSection from './CommentsSection';
 import { useBrand } from '../../../../hooks/useBrand';
+import { useLicenseEntitlement } from '../../../../hooks/useLicenseEntitlement';
+import { getCustomFieldValuesForDetails } from '../../type';
+import { getErrorMessage } from '../../../../utils/api';
+import { getCommentsCountByWorkOrder } from '../../../../slices/comment';
 
 const LabelWrapper = styled(Box)(
   ({ theme }) => `
@@ -122,6 +128,9 @@ export default function WorkOrderDetails(props: WorkOrderDetailsProps) {
   const { t }: { t: any } = useTranslation();
   const { user, hasEditPermission, hasDeletePermission } = useAuth();
   const brandConfig = useBrand();
+  const hasWOHistoryEntitlement = useLicenseEntitlement('WORK_ORDER_HISTORY');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const commentIdParam = searchParams.get('commentId');
   const [openAddTimeModal, setOpenAddTimeModal] = useState<boolean>(false);
   const [openAddFileModal, setOpenAddFileModal] = useState<boolean>(false);
   const [openAddCostModal, setOpenAddCostModal] = useState<boolean>(false);
@@ -154,6 +163,8 @@ export default function WorkOrderDetails(props: WorkOrderDetailsProps) {
     (state) => state.additionalCosts
   );
   const additionalCosts = costsByWorkOrder[workOrder.id] ?? [];
+  const { commentsCountByWorkOrder } = useSelector((state) => state.comments);
+  const commentsCount = commentsCountByWorkOrder[workOrder.id] ?? 0;
   const dispatch = useDispatch();
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const openMenu = Boolean(anchorEl);
@@ -165,6 +176,23 @@ export default function WorkOrderDetails(props: WorkOrderDetailsProps) {
   const [primaryTimeHours, setPrimaryTimeHours] = useState<number>();
   const [primaryTimeMinutes, setPrimaryTimeMinutes] = useState<number>();
   const [savingPrimaryTime, setSavingPrimaryTime] = useState<boolean>(false);
+  const [commentId, setCommentId] = useState<number>(null);
+
+  useEffect(() => {
+    dispatch(getCommentsCountByWorkOrder(workOrder.id));
+  }, [workOrder.id, dispatch]);
+
+  useEffect(() => {
+    if (commentIdParam) {
+      setCurrentTab('comments');
+      setCommentId(Number(commentIdParam));
+      const newParams = new URLSearchParams(searchParams);
+      newParams.delete('commentId');
+
+      setSearchParams(newParams);
+    }
+  }, [commentIdParam]);
+
   useEffect(() => {
     [workOrder.createdBy, workOrder.parentRequest?.createdBy].forEach(
       (createdBy) => {
@@ -243,9 +271,10 @@ export default function WorkOrderDetails(props: WorkOrderDetailsProps) {
       },
       {
         name: 'completeTime',
-        condition: labors
-          .filter((labor) => labor.logged)
-          .some((labor) => !labor.duration),
+        condition:
+          labors
+            .filter((labor) => labor.logged)
+            .filter((labor) => labor.duration).length === 0,
         message: 'required_labor_on_completion'
       },
       {
@@ -368,10 +397,13 @@ export default function WorkOrderDetails(props: WorkOrderDetailsProps) {
   const workOrderStatuses = ['OPEN', 'IN_PROGRESS', 'ON_HOLD', 'COMPLETE'];
   const tabs = [
     { value: 'details', label: t('details') },
-    { value: 'updates', label: t('updates') }
+    {
+      value: 'comments',
+      label: `${t('comments')}${commentsCount > 0 ? ` (${commentsCount})` : ''}`
+    }
   ];
 
-  const getPath = (resource, id) => {
+  const getPath = (resource: string, id: number) => {
     switch (resource) {
       case 'asset':
         return getAssetUrl(id);
@@ -399,14 +431,19 @@ export default function WorkOrderDetails(props: WorkOrderDetailsProps) {
     label,
     value,
     id,
-    type
+    type,
+    isLink
   }: {
     label: string | number;
     value: string | number;
     type?: string;
     id?: number;
+    isLink?: boolean;
   }) => {
-    if (value && (!type || (type && id))) {
+    if (value && (isLink || !type || (type && id))) {
+      const href = value.toString().startsWith('http')
+        ? value.toString()
+        : `https://${value}`;
       return (
         <Grid item xs={12} lg={6}>
           <Typography variant="h6" sx={{ color: theme.colors.alpha.black[70] }}>
@@ -414,6 +451,16 @@ export default function WorkOrderDetails(props: WorkOrderDetailsProps) {
           </Typography>
           {type ? (
             <Link href={getPath(type, id)} variant="h6" fontWeight="bold">
+              {value}
+            </Link>
+          ) : isLink ? (
+            <Link
+              variant="h6"
+              fontWeight="bold"
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
               {value}
             </Link>
           ) : (
@@ -425,8 +472,6 @@ export default function WorkOrderDetails(props: WorkOrderDetailsProps) {
   };
   const handleTabsChange = (_event: ChangeEvent<{}>, value: string): void => {
     setCurrentTab(value);
-    if (value === 'updates' && !currentWorkOrderHistories.length)
-      dispatch(getWorkOrderHistories(workOrder.id));
   };
   const detailsFieldsToRender = (
     workOrder: WorkOrder
@@ -434,6 +479,7 @@ export default function WorkOrderDetails(props: WorkOrderDetailsProps) {
     label: string;
     value: string | number;
     type?: 'location' | 'asset' | 'team';
+    isLink?: boolean;
     id?: number;
   }[] => [
     {
@@ -479,7 +525,11 @@ export default function WorkOrderDetails(props: WorkOrderDetailsProps) {
     {
       label: t('created_at'),
       value: getFormattedDate(workOrder.createdAt)
-    }
+    },
+    ...getCustomFieldValuesForDetails(
+      workOrder.customFieldValues,
+      getFormattedDate
+    )
   ];
   return (
     <Grid
@@ -558,7 +608,17 @@ export default function WorkOrderDetails(props: WorkOrderDetailsProps) {
               >
                 <Box>
                   {changingStatus ? (
-                    <CircularProgress size={'2rem'} />
+                    <Box
+                      sx={{
+                        display: 'flex',
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        width: 100,
+                        height: 30
+                      }}
+                    >
+                      <CircularProgress size={'1rem'} />
+                    </Box>
                   ) : (
                     <Select
                       onChange={(event) => {
@@ -642,9 +702,11 @@ export default function WorkOrderDetails(props: WorkOrderDetailsProps) {
                     }
                     onClick={() => {
                       setControllingTime(true);
-                      dispatch(
-                        controlTimer(!runningTimer, workOrder.id)
-                      ).finally(() => setControllingTime(false));
+                      dispatch(controlTimer(!runningTimer, workOrder.id))
+                        .catch((err) =>
+                          showSnackBar(getErrorMessage(err), 'error')
+                        )
+                        .finally(() => setControllingTime(false));
                     }}
                     variant={runningTimer ? 'contained' : 'outlined'}
                   >
@@ -674,13 +736,7 @@ export default function WorkOrderDetails(props: WorkOrderDetailsProps) {
                 </Grid>
               )}
               {detailsFieldsToRender(workOrder).map((field, index) => (
-                <BasicField
-                  key={index}
-                  label={field.label}
-                  value={field.value}
-                  type={field.type}
-                  id={field.id}
-                />
+                <BasicField key={index} {...field} />
               ))}
               {workOrder.primaryUser && (
                 <Grid item xs={12} lg={6}>
@@ -1319,22 +1375,8 @@ export default function WorkOrderDetails(props: WorkOrderDetailsProps) {
             </Box>
           </Box>
         )}
-        {currentTab == 'updates' && (
-          <List>
-            {[...currentWorkOrderHistories]
-              .reverse()
-              .map((workOrderHistory) => (
-                <ListItem
-                  key={workOrderHistory.id}
-                  secondaryAction={getFormattedDate(workOrderHistory.createdAt)}
-                >
-                  <ListItemText
-                    primary={`${workOrderHistory.user.firstName} ${workOrderHistory.user.lastName}`}
-                    secondary={workOrderHistory.name}
-                  />
-                </ListItem>
-              ))}
-          </List>
+        {currentTab == 'comments' && (
+          <CommentsSection workOrderId={workOrder.id} commentId={commentId} />
         )}
       </Grid>
       <AddTimeModal

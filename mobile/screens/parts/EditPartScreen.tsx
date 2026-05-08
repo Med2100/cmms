@@ -6,12 +6,20 @@ import { StyleSheet } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { useContext } from 'react';
 import { CompanySettingsContext } from '../../contexts/CompanySettingsContext';
-import { getImageAndFiles } from '../../utils/overall';
-import { useDispatch } from '../../store';
+import { getImageAndFiles, handleFileUpload } from '../../utils/overall';
+import { useDispatch, useSelector } from '../../store';
 import { editPart } from '../../slices/part';
 import { CustomSnackBarContext } from '../../contexts/CustomSnackBarContext';
 import { formatPartValues, getPartFields } from '../../utils/fields';
+import { formatCustomFields } from '../../utils/formatters';
 import useAuth from '../../hooks/useAuth';
+import {
+  IField,
+  getCustomFieldsIFields,
+  getCustomFieldsRequiredShape,
+  getCustomFieldsValues
+} from '../../models/form';
+import { CustomFieldEntityType } from '../../models/customField';
 
 export default function EditPartScreen({
   navigation,
@@ -25,8 +33,19 @@ export default function EditPartScreen({
   );
   const { showSnackBar } = useContext(CustomSnackBarContext);
   const dispatch = useDispatch();
-  const shape = {
-    name: Yup.string().required(t('required_part_name'))
+  const { customFields } = useSelector((state) => state.customFields);
+
+  const defaultShape = {
+    name: Yup.string().required(t('required_part_name')),
+    ...getCustomFieldsRequiredShape(customFields, CustomFieldEntityType.PART, t)
+  };
+
+  const getFieldsAndShapes = (): [Array<IField>, { [key: string]: any }] => {
+    const fields = [
+      ...getFilteredFields(getPartFields(t)),
+      ...getCustomFieldsIFields(customFields, CustomFieldEntityType.PART)
+    ];
+    return getWOFieldsAndShapes(fields, defaultShape);
   };
 
   const onEditSuccess = () => {
@@ -38,12 +57,13 @@ export default function EditPartScreen({
   return (
     <View style={styles.container}>
       <Form
-        fields={getFilteredFields(getPartFields(t))}
-        validation={Yup.object().shape(shape)}
+        fields={getFieldsAndShapes()[0]}
+        validation={Yup.object().shape(getFieldsAndShapes()[1])}
         navigation={navigation}
         submitText={t('save')}
         values={{
           ...part,
+          ...getCustomFieldsValues(part),
           assignedTo: part?.assignedTo.map((user) => {
             return {
               label: `${user.firstName} ${user.lastName}`,
@@ -72,28 +92,26 @@ export default function EditPartScreen({
         onChange={({ field, e }) => {}}
         onSubmit={async (values) => {
           let formattedValues = formatPartValues(values);
-          return new Promise<void>((resolve, rej) => {
-            const files = formattedValues.files.find((file) => file.id)
-              ? []
-              : formattedValues.files;
-            uploadFiles(files, formattedValues.image)
-              .then((files) => {
-                const imageAndFiles = getImageAndFiles(files, part.image);
-                formattedValues = {
-                  ...formattedValues,
-                  image: imageAndFiles.image,
-                  files: [...part.files, ...imageAndFiles.files]
-                };
-                dispatch(editPart(part.id, formattedValues))
-                  .then(onEditSuccess)
-                  .catch(onEditFailure)
-                  .finally(resolve);
-              })
-              .catch((err) => {
-                onEditFailure(err);
-                rej(err);
-              });
-          });
+          formattedValues = formatCustomFields(formattedValues);
+          try {
+            const imageAndFiles = await handleFileUpload(
+              {
+                files: formattedValues.files,
+                image: formattedValues.image
+              },
+              uploadFiles
+            );
+            formattedValues = {
+              ...formattedValues,
+              image: imageAndFiles.image,
+              files: imageAndFiles.files
+            };
+            await dispatch(editPart(part.id, formattedValues));
+            onEditSuccess();
+          } catch (err) {
+            onEditFailure(err);
+            throw err;
+          }
         }}
       />
     </View>

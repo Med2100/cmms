@@ -7,6 +7,8 @@ import { Audit } from './audit';
 import { CustomerMiniDTO } from './customer';
 import Category from './category';
 import { Priority } from './workOrder';
+import { RequestPortalMiniDTO } from './requestPortal';
+import { CustomField } from './customField';
 
 export interface WorkOrderBase extends Audit {
   title: string;
@@ -25,6 +27,8 @@ export interface WorkOrderBase extends Audit {
   category: Category | null;
   team: Team;
   files: File[];
+  requestPortal: RequestPortalMiniDTO | null;
+  customFieldValues: { customField: CustomField; value: string }[];
 }
 
 export interface WorkOrderBaseMiniDTO {

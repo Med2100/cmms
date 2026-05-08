@@ -1,30 +1,32 @@
 import { getApiUrl } from '../config';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-async function api<T>(url: string, options): Promise<T> {
+type Options = RequestInit & { raw?: boolean; headers?: HeadersInit };
+
+async function api<T>(url: string, options: Options): Promise<T> {
   return fetch(url, { headers: await authHeader(false), ...options }).then(
-    (response) => {
+    async (response) => {
       if (!response.ok) {
         if (response.status === 403) {
           //TODO
           // AsyncStorage.clear();
         }
-        throw new Error(response.statusText);
+        throw new Error(JSON.stringify(await response.json()));
       }
       return response.json() as Promise<T>;
     }
   );
 }
 
-async function get<T>(url, options?) {
+async function get<T>(url: string, options?: Options) {
   const currentApiUrl = await getApiUrl();
   return api<T>(currentApiUrl + url, options);
 }
 
 async function post<T>(
-  url,
-  data,
-  options?,
+  url: string,
+  data: object | any,
+  options?: Options,
   withoutCompany?: boolean,
   isNotJson?: boolean
 ) {
@@ -41,7 +43,12 @@ async function post<T>(
   });
 }
 
-async function patch<T>(url, data, options?, withoutCompany?: boolean) {
+async function patch<T>(
+  url: string,
+  data: object,
+  options?: Options,
+  withoutCompany?: boolean
+) {
   const companyId = await AsyncStorage.getItem('companyId');
   const currentApiUrl = await getApiUrl();
   return api<T>(currentApiUrl + url, {
@@ -53,12 +60,12 @@ async function patch<T>(url, data, options?, withoutCompany?: boolean) {
   });
 }
 
-async function deletes<T>(url, options?) {
+async function deletes<T>(url, options?: Options) {
   const currentApiUrl = await getApiUrl();
   return api<T>(currentApiUrl + url, { ...options, method: 'DELETE' });
 }
 
-export async function authHeader(publicRoute) {
+export async function authHeader(publicRoute: boolean) {
   // return authorization header with jwt token
   let accessToken = await AsyncStorage.getItem('accessToken');
   if (!publicRoute && accessToken) {
@@ -74,5 +81,16 @@ export async function authHeader(publicRoute) {
     };
   }
 }
+export const getErrorMessage = (
+  error: any,
+  defaultMessage?: string
+): string => {
+  try {
+    const parsed = JSON.parse(error.message);
+    return parsed?.message ?? error.message ?? defaultMessage;
+  } catch {
+    return error.message ?? defaultMessage;
+  }
+};
 
-export default { get, patch, post, deletes };
+export default { get, patch, post, deletes, getErrorMessage };

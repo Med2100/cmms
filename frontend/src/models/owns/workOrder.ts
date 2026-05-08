@@ -9,6 +9,7 @@ import { OwnUser, UserMiniDTO } from '../user';
 import { CustomerMiniDTO } from './customer';
 import PreventiveMaintenance from './preventiveMaintenance';
 import { WorkOrderBase } from './workOrderBase';
+import { CustomField } from './customField';
 
 export type Priority = 'HIGH' | 'MEDIUM' | 'LOW' | 'NONE';
 
@@ -27,4 +28,11 @@ export default interface WorkOrder extends WorkOrderBase {
   audioDescription: File;
   customId: string;
   //parentPreventiveMaintenance:
+}
+
+export interface WorkOrderMini {
+  id: number;
+  title: string;
+  status: string;
+  createdAt: string;
 }

@@ -1,12 +1,11 @@
 package com.grash.job;
 
-import com.grash.model.OwnUser;
+import com.grash.factory.MailServiceFactory;
+import com.grash.model.User;
 import com.grash.model.PreventiveMaintenance;
 import com.grash.model.Schedule;
 import com.grash.model.enums.PermissionEntity;
-import com.grash.model.enums.RecurrenceType;
 import com.grash.repository.ScheduleRepository;
-import com.grash.service.EmailService2;
 import com.grash.service.ScheduleService;
 import com.grash.service.UserService;
 import com.grash.utils.Helper;
@@ -20,7 +19,6 @@ import org.springframework.scheduling.quartz.QuartzJobBean;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -33,7 +31,7 @@ public class PreventiveMaintenanceNotificationJob extends QuartzJobBean {
 
     private final ScheduleRepository scheduleRepository;
     private final UserService userService;
-    private final EmailService2 emailService2;
+    private final MailServiceFactory mailServiceFactory;
     private final MessageSource messageSource;
     private final ScheduleService scheduleService;
 
@@ -56,29 +54,28 @@ public class PreventiveMaintenanceNotificationJob extends QuartzJobBean {
         String title = messageSource.getMessage("coming_wo", null, locale);
 
         // Logic copied from original TimerTask
-        Collection<OwnUser> admins = userService.findWorkersByCompany(preventiveMaintenance.getCompany().getId())
+        Collection<User> admins = userService.findWorkersByCompany(preventiveMaintenance.getCompany().getId())
                 .stream()
                 .filter(ownUser -> ownUser.getRole().getViewPermissions().contains(PermissionEntity.SETTINGS))
                 .collect(Collectors.toList());
 
-        List<OwnUser> usersToMail = new ArrayList<>(Stream.concat(
+        List<User> usersToMail = new ArrayList<>(Stream.concat(
                         preventiveMaintenance.getUsers().stream(),
                         admins.stream())
                 .filter(user -> user.isEnabled() && user.getUserSettings().shouldEmailUpdatesForWorkOrders())
                 .collect(Collectors.toMap(
-                        OwnUser::getId,
+                        User::getId,
                         Function.identity(),
                         (existing, replacement) -> existing))
                 .values());
 
         Map<String, Object> mailVariables = new HashMap<String, Object>() {{
             put("pmLink", frontendUrl + "/app/preventive-maintenances/" + preventiveMaintenance.getId());
-            put("featuresLink", frontendUrl + "/#key-features");
             put("pmTitle", preventiveMaintenance.getTitle());
         }};
 
-        emailService2.sendMessageUsingThymeleafTemplate(
-                usersToMail.stream().map(OwnUser::getEmail).toArray(String[]::new),
+        mailServiceFactory.getMailService().sendMessageUsingThymeleafTemplate(
+                usersToMail.stream().map(User::getEmail).toArray(String[]::new),
                 title,
                 mailVariables,
                 "coming-work-order.html",

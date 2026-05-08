@@ -1516,6 +1516,15 @@ const trJSON = {
   power: 'Güç',
   library: 'Fotoğraf Kütüphanesi',
   camera: 'Kamera',
+  media_library: 'Medya kitaplığı',
+  permission_required_title: 'İzin gerekli',
+  permission_required_message:
+    '{{permission}} erişimi gerekli. Lütfen uygulama ayarlarından etkinleştirin.',
+  permission_denied_title: 'İzin reddedildi',
+  permission_denied_message: 'Devam etmek için {{permission}} erişimi gerekli.',
+  unable_to_request_permission: '{{permission}} izni istenemedi.',
+  open_settings: 'Ayarları aç',
+  ok: 'Tamam',
   CANCELLED: 'Reddedilmiş',
   max_file_size_error: "Dosya boyutu {{size}} MB'tan büyük olmamalıdır",
   assignedToUser: 'Benim işim',
@@ -1539,6 +1548,12 @@ const trJSON = {
   top_level: 'En üst seviye',
   no_results_found: 'Sonuç bulunamadı',
   no_sub_assets: 'Alt varlık yok',
-  no_assets_available: 'Mevcut varlık yok'
+  no_assets_available: 'Mevcut varlık yok',
+  asset_not_found: 'Varlık bulunamadı',
+  comments: 'Yorumlar',
+  no_comments: 'Henüz yorum yok. İlk yorum yapan siz olun!',
+  post_comment: 'Yorum yap',
+  confirm_delete_comment: 'Bu yorumu silmek istediğinizden emin misiniz?',
+  add_comment_placeholder: 'Yorum ekleyin...'
 };
 export default trJSON;

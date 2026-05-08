@@ -6,19 +6,23 @@ import com.grash.model.enums.PermissionEntity;
 import com.grash.model.enums.RoleCode;
 import com.grash.model.enums.RoleType;
 import com.grash.utils.Helper;
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import javax.persistence.*;
+import jakarta.persistence.*;
+
 import java.util.*;
 import java.util.stream.Collectors;
 
 @Entity
 @Data
 @NoArgsConstructor
+@Schema(description = "Company settings and configuration entity")
 public class CompanySettings {
     @Id
     @GeneratedValue(strategy = GenerationType.AUTO)
+    @Schema(description = "Unique identifier", accessMode = Schema.AccessMode.READ_ONLY)
     private Long id;
 
     @OneToOne(cascade = CascadeType.ALL, fetch = FetchType.LAZY)
@@ -55,6 +59,9 @@ public class CompanySettings {
     @JsonIgnore
     private List<TimeCategory> timeCategories = new ArrayList<>();
 
+    @OneToMany(cascade = CascadeType.ALL, mappedBy = "companySettings", fetch = FetchType.LAZY)
+    @JsonIgnore
+    private List<CustomField> customFields = new ArrayList<>();
 
     private List<CostCategory> createCostCategories(List<String> costCategories) {
         return costCategories.stream().map(costCategory -> new CostCategory(costCategory, this)).collect(Collectors.toList());
@@ -65,3 +72,4 @@ public class CompanySettings {
     }
 
 }
+

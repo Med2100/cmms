@@ -3,15 +3,19 @@ import { useTranslation } from 'react-i18next';
 import Form from '../components/form';
 import * as Yup from 'yup';
 import { IField } from '../type';
-import { formatSelect, formatSelectMultiple } from '../../../utils/formatters';
-import { useDispatch } from '../../../store';
+import { formatSelect, formatSelectMultiple, formatCustomFields } from '../../../utils/formatters';
+import { useDispatch, useSelector } from '../../../store';
 import { createWorkOrderMeterTrigger } from '../../../slices/workOrderMeterTrigger';
 import { getWOBaseFields } from '../../../utils/woBase';
+import { getCustomFields } from '../../../slices/customField';
+import { CustomFieldEntityType } from '../../../models/owns/customField';
+import { getCustomFieldsRequiredShape } from '../../own/type';
 import Meter from '../../../models/owns/meter';
-import { useContext } from 'react';
+import { useContext, useEffect } from 'react';
 import { CompanySettingsContext } from '../../../contexts/CompanySettingsContext';
 import { CustomSnackBarContext } from '../../../contexts/CustomSnackBarContext';
 import { getImageAndFiles } from '../../../utils/overall';
+import { getErrorMessage } from '../../../utils/api';
 
 interface AddTriggerProps {
   open: boolean;
@@ -27,6 +31,14 @@ export default function AddTriggerModal({
   const dispatch = useDispatch();
   const { showSnackBar } = useContext(CustomSnackBarContext);
   const { uploadFiles } = useContext(CompanySettingsContext);
+  const { customFields } = useSelector((state) => state.customFields);
+
+  useEffect(() => {
+    if (open && !customFields.length) {
+      dispatch(getCustomFields());
+    }
+  }, [open]);
+
   const fields: Array<IField> = [
     {
       name: 'name',
@@ -57,13 +69,18 @@ export default function AddTriggerModal({
       type: 'titleGroupField',
       label: t('wo_configuration')
     },
-    ...getWOBaseFields(t)
+    ...getWOBaseFields(t, customFields)
   ];
   const shape = {
     name: Yup.string().required(t('required_trigger_name')),
     title: Yup.string().required(t('required_wo_title')),
     value: Yup.number().required(t('required_value')),
-    triggerCondition: Yup.object().required(t('required_trigger_condition'))
+    triggerCondition: Yup.object().required(t('required_trigger_condition')),
+    ...getCustomFieldsRequiredShape(
+      customFields,
+      CustomFieldEntityType.WORK_ORDER,
+      t
+    )
   };
   const formatValues = (values) => {
     const newValues = { ...values };
@@ -75,14 +92,14 @@ export default function AddTriggerModal({
     newValues.assignedTo = formatSelectMultiple(newValues.assignedTo);
     newValues.priority = newValues.priority?.value;
     newValues.triggerCondition = newValues.triggerCondition.value;
-    return newValues;
+    return formatCustomFields(newValues);
   };
   const onCreationSuccess = () => {
     onClose();
     showSnackBar(t('wo_trigger_create_success'), 'success');
   };
   const onCreationFailure = (err) =>
-    showSnackBar(t('wo_trigger_create_failure'), 'error');
+    showSnackBar(getErrorMessage(err, t('wo_trigger_create_failure')), 'error');
 
   return (
     <Dialog fullWidth maxWidth="sm" open={open} onClose={onClose}>
@@ -112,32 +129,27 @@ export default function AddTriggerModal({
           onChange={({ field, e }) => {}}
           onSubmit={async (values) => {
             let formattedValues = formatValues(values);
-            return new Promise<void>((resolve, rej) => {
-              uploadFiles(formattedValues.files, formattedValues.image)
-                .then((files) => {
-                  const imageAndFiles = getImageAndFiles(files);
-                  formattedValues = {
-                    ...formattedValues,
-                    image: imageAndFiles.image,
-                    files: imageAndFiles.files
-                  };
-                  dispatch(
-                    createWorkOrderMeterTrigger(meter.id, formattedValues)
-                  )
-                    .then(() => {
-                      onCreationSuccess();
-                      resolve();
-                    })
-                    .catch((err) => {
-                      onCreationFailure(err);
-                      rej();
-                    });
-                })
-                .catch((err) => {
-                  onCreationFailure(err);
-                  rej();
-                });
-            });
+            try {
+              const uploadedFiles = await uploadFiles(
+                formattedValues.files,
+                formattedValues.image
+              );
+
+              const imageAndFiles = getImageAndFiles(uploadedFiles);
+              formattedValues = {
+                ...formattedValues,
+                image: imageAndFiles.image,
+                files: imageAndFiles.files
+              };
+
+              await dispatch(
+                createWorkOrderMeterTrigger(meter.id, formattedValues)
+              );
+              onCreationSuccess();
+            } catch (err) {
+              onCreationFailure(err);
+              throw err;
+            }
           }}
         />
       </DialogContent>

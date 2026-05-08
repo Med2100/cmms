@@ -1440,6 +1440,17 @@ const plJSON = {
   power: 'Moc',
   library: 'Biblioteka',
   camera: 'Kamera',
+  media_library: 'Biblioteka zdjęć',
+  permission_required_title: 'Wymagane uprawnienie',
+  permission_required_message:
+    'Dostęp do {{permission}} jest wymagany. Włącz go w ustawieniach aplikacji.',
+  permission_denied_title: 'Odmowa uprawnienia',
+  permission_denied_message:
+    'Dostęp do {{permission}} jest wymagany, aby kontynuować.',
+  unable_to_request_permission:
+    'Nie udało się poprosić o uprawnienie do {{permission}}.',
+  open_settings: 'Otwórz ustawienia',
+  ok: 'OK',
   CANCELLED: 'Odrzucony',
   max_file_size_error: 'Rozmiar pliku nie powinien być większy niż {{size}} MB',
   assignedToUser: 'Moja praca',
@@ -1472,7 +1483,13 @@ const plJSON = {
   top_level: 'Poziom główny',
   no_results_found: 'Nie znaleziono wyników',
   no_sub_assets: 'Brak podzasobów',
-  no_assets_available: 'Brak dostępnych zasobów'
+  no_assets_available: 'Brak dostępnych zasobów',
+  asset_not_found: 'Zasób nie znaleziony',
+  comments: 'Komentarze',
+  no_comments: 'Brak komentarzy. Bądź pierwszym, który skomentuje!',
+  post_comment: 'Opublikuj komentarz',
+  confirm_delete_comment: 'Czy na pewno chcesz usunąć ten komentarz?',
+  add_comment_placeholder: 'Dodaj komentarz...'
 };
 
 export default plJSON;

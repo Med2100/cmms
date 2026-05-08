@@ -6,17 +6,25 @@ import { StyleSheet } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { useContext } from 'react';
 import { CompanySettingsContext } from '../../contexts/CompanySettingsContext';
-import { getImageAndFiles } from '../../utils/overall';
-import { useDispatch } from '../../store';
+import { getImageAndFiles, handleFileUpload } from '../../utils/overall';
+import { useDispatch, useSelector } from '../../store';
 import { editRequest } from '../../slices/request';
 import { CustomSnackBarContext } from '../../contexts/CustomSnackBarContext';
 import { formatRequestValues } from '../../utils/fields';
+import { formatCustomFields } from '../../utils/formatters';
 import { getWOBaseValues } from '../../utils/woBase';
+import {
+  IField,
+  getCustomFieldsIFields,
+  getCustomFieldsRequiredShape,
+  getCustomFieldsValues
+} from '../../models/form';
+import { CustomFieldEntityType } from '../../models/customField';
 
 export default function EditRequestScreen({
-                                            navigation,
-                                            route
-                                          }: RootStackScreenProps<'EditRequest'>) {
+  navigation,
+  route
+}: RootStackScreenProps<'EditRequest'>) {
   const { t } = useTranslation();
   const { request } = route.params;
   const { uploadFiles, getRequestFieldsAndShapes } = useContext(
@@ -25,6 +33,7 @@ export default function EditRequestScreen({
 
   const { showSnackBar } = useContext(CustomSnackBarContext);
   const dispatch = useDispatch();
+  const { customFields } = useSelector((state) => state.customFields);
 
   const onEditSuccess = () => {
     showSnackBar(t('changes_saved_success'), 'success');
@@ -33,35 +42,59 @@ export default function EditRequestScreen({
   const onEditFailure = (err) =>
     showSnackBar(t('request_edit_failure'), 'error');
 
+  const getFieldsAndShapes = (): [Array<IField>, { [key: string]: any }] => {
+    const baseShape = getRequestFieldsAndShapes()[1];
+    const customShape = getCustomFieldsRequiredShape(
+      customFields,
+      CustomFieldEntityType.WORK_ORDER,
+      t
+    );
+    const customFieldsList = getCustomFieldsIFields(
+      customFields,
+      CustomFieldEntityType.WORK_ORDER
+    );
+    return [
+      [...getRequestFieldsAndShapes()[0], ...customFieldsList],
+      { ...baseShape, ...customShape }
+    ];
+  };
+
   return (
     <View style={styles.container}>
       <Form
-        fields={getRequestFieldsAndShapes()[0]}
-        validation={Yup.object().shape(getRequestFieldsAndShapes()[1])}
+        fields={getFieldsAndShapes()[0]}
+        validation={Yup.object().shape(getFieldsAndShapes()[1])}
         navigation={navigation}
         submitText={t('save')}
         values={{
           ...request,
-          ...getWOBaseValues(t, request)
+          ...getWOBaseValues(t, request),
+          ...getCustomFieldsValues(request)
         }}
-        onChange={({ field, e }) => {
-        }}
+        onChange={({ field, e }) => {}}
         onSubmit={async (values) => {
           try {
             let formattedValues = formatRequestValues(values);
-            const filesToUpload = formattedValues.files.some((file) => file.id) ? [] : formattedValues.files;
-
-            const uploadedFiles = await uploadFiles(filesToUpload, formattedValues.image);
-            const imageAndFiles = getImageAndFiles(uploadedFiles, request.image);
+            formattedValues = formatCustomFields(formattedValues);
+            const imageAndFiles = await handleFileUpload(
+              {
+                files: formattedValues.files,
+                image: formattedValues.image
+              },
+              uploadFiles
+            );
             if (values.audioDescription) {
-              const audioFiles = await uploadFiles([values.audioDescription], []);
-              const imageAndFiles = getImageAndFiles(audioFiles);
-              formattedValues.audioDescription = imageAndFiles.files[0];
+              const audioFiles = await uploadFiles(
+                [values.audioDescription],
+                []
+              );
+              const audioImageAndFiles = getImageAndFiles(audioFiles);
+              formattedValues.audioDescription = audioImageAndFiles.files[0];
             }
             formattedValues = {
               ...formattedValues,
               image: imageAndFiles.image,
-              files: [...request.files, ...imageAndFiles.files]
+              files: imageAndFiles.files
             };
 
             await dispatch(editRequest(request?.id, formattedValues));

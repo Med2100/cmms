@@ -6,12 +6,20 @@ import { StyleSheet } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { useContext } from 'react';
 import { CompanySettingsContext } from '../../contexts/CompanySettingsContext';
-import { getImageAndFiles } from '../../utils/overall';
-import { useDispatch } from '../../store';
+import { getImageAndFiles, handleFileUpload } from '../../utils/overall';
+import { useDispatch, useSelector } from '../../store';
 import { editLocation } from '../../slices/location';
 import { CustomSnackBarContext } from '../../contexts/CustomSnackBarContext';
 import { formatLocationValues, getLocationFields } from '../../utils/fields';
+import { formatCustomFields } from '../../utils/formatters';
 import useAuth from '../../hooks/useAuth';
+import {
+  IField,
+  getCustomFieldsIFields,
+  getCustomFieldsRequiredShape,
+  getCustomFieldsValues
+} from '../../models/form';
+import { CustomFieldEntityType } from '../../models/customField';
 
 export default function EditLocationScreen({
   navigation,
@@ -25,14 +33,25 @@ export default function EditLocationScreen({
   );
   const { showSnackBar } = useContext(CustomSnackBarContext);
   const dispatch = useDispatch();
-  const shape = {
+  const { customFields } = useSelector((state) => state.customFields);
+
+  const defaultShape = {
     name: Yup.string().required(t('required_location_name')),
-    address: Yup.string().required(t('required_location_address'))
+    ...getCustomFieldsRequiredShape(
+      customFields,
+      CustomFieldEntityType.LOCATION,
+      t
+    )
   };
-  const getEditFields = () => {
-    const fieldsClone = [...getFilteredFields(getLocationFields(t))];
-    return fieldsClone;
+
+  const getFieldsAndShapes = (): [Array<IField>, { [key: string]: any }] => {
+    const fields = [
+      ...getFilteredFields(getLocationFields(t)),
+      ...getCustomFieldsIFields(customFields, CustomFieldEntityType.LOCATION)
+    ];
+    return getWOFieldsAndShapes(fields, defaultShape);
   };
+
   const onEditSuccess = () => {
     showSnackBar(t('changes_saved_success'), 'success');
     navigation.goBack();
@@ -43,12 +62,13 @@ export default function EditLocationScreen({
   return (
     <View style={styles.container}>
       <Form
-        fields={getEditFields()}
-        validation={Yup.object().shape(shape)}
+        fields={getFieldsAndShapes()[0]}
+        validation={Yup.object().shape(getFieldsAndShapes()[1])}
         navigation={navigation}
         submitText={t('save')}
         values={{
           ...location,
+          ...getCustomFieldsValues(location),
           title: location?.name,
           workers: location?.workers.map((worker) => {
             return {
@@ -84,34 +104,26 @@ export default function EditLocationScreen({
         onChange={({ field, e }) => {}}
         onSubmit={async (values) => {
           let formattedValues = formatLocationValues(values);
-          //differentiate files from api and formattedValues
-          const files = formattedValues.files.find((file) => file.id)
-            ? []
-            : formattedValues.files;
-          return new Promise<void>((resolve, rej) => {
-            uploadFiles(files, formattedValues.image)
-              .then((files) => {
-                const imageAndFiles = getImageAndFiles(files, location.image);
-                formattedValues = {
-                  ...formattedValues,
-                  image: imageAndFiles.image,
-                  files: [...location.files, ...imageAndFiles.files]
-                };
-                dispatch(editLocation(location.id, formattedValues))
-                  .then(() => {
-                    resolve();
-                    onEditSuccess();
-                  })
-                  .catch((err) => {
-                    onEditFailure(err);
-                    rej(err);
-                  });
-              })
-              .catch((err) => {
-                onEditFailure(err);
-                rej(err);
-              });
-          });
+          formattedValues = formatCustomFields(formattedValues);
+          try {
+            const imageAndFiles = await handleFileUpload(
+              {
+                files: formattedValues.files,
+                image: formattedValues.image
+              },
+              uploadFiles
+            );
+            formattedValues = {
+              ...formattedValues,
+              image: imageAndFiles.image,
+              files: imageAndFiles.files
+            };
+            await dispatch(editLocation(location.id, formattedValues));
+            onEditSuccess();
+          } catch (err) {
+            onEditFailure(err);
+            throw err;
+          }
         }}
       />
     </View>

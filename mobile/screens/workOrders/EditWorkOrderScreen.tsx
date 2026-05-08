@@ -4,16 +4,24 @@ import Form from '../../components/form';
 import * as Yup from 'yup';
 import { StyleSheet } from 'react-native';
 import { useTranslation } from 'react-i18next';
-import { IField } from '../../models/form';
-import { useContext } from 'react';
+import {
+  IField,
+  getCustomFieldsIFields,
+  getCustomFieldsRequiredShape,
+  getCustomFieldsValues
+} from '../../models/form';
+import { useContext, useEffect } from 'react';
 import { CompanySettingsContext } from '../../contexts/CompanySettingsContext';
-import { getImageAndFiles } from '../../utils/overall';
-import { useDispatch } from '../../store';
+import { getImageAndFiles, handleFileUpload } from '../../utils/overall';
+import { useDispatch, useSelector } from '../../store';
 import { editWorkOrder } from '../../slices/workOrder';
 import { CustomSnackBarContext } from '../../contexts/CustomSnackBarContext';
 import { formatWorkOrderValues, getWorkOrderFields } from '../../utils/fields';
+import { formatCustomFields } from '../../utils/formatters';
 import { getWOBaseValues } from '../../utils/woBase';
 import { patchTasks } from '../../slices/task';
+import { getCustomFields } from '../../slices/customField';
+import { CustomFieldEntityType } from '../../models/customField';
 
 export default function EditWorkOrderScreen({
   navigation,
@@ -26,8 +34,15 @@ export default function EditWorkOrderScreen({
   );
   const { showSnackBar } = useContext(CustomSnackBarContext);
   const dispatch = useDispatch();
+  const { customFields } = useSelector((state) => state.customFields);
+
   const defaultShape: { [key: string]: any } = {
-    title: Yup.string().required(t('required_wo_title'))
+    title: Yup.string().required(t('required_wo_title')),
+    ...getCustomFieldsRequiredShape(
+      customFields,
+      CustomFieldEntityType.WORK_ORDER,
+      t
+    )
   };
 
   const onEditSuccess = () => {
@@ -36,7 +51,11 @@ export default function EditWorkOrderScreen({
   };
   const onEditFailure = (err) => showSnackBar(t('wo_update_failure'), 'error');
   const getFieldsAndShapes = (): [Array<IField>, { [key: string]: any }] => {
-    return getWOFieldsAndShapes(getWorkOrderFields(t), defaultShape);
+    const fields = [
+      ...getWorkOrderFields(t),
+      ...getCustomFieldsIFields(customFields, CustomFieldEntityType.WORK_ORDER)
+    ];
+    return getWOFieldsAndShapes(fields, defaultShape);
   };
   return (
     <View style={styles.container}>
@@ -48,57 +67,43 @@ export default function EditWorkOrderScreen({
         values={{
           ...workOrder,
           tasks: tasks,
-          ...getWOBaseValues(t, workOrder)
+          ...getWOBaseValues(t, workOrder),
+          ...getCustomFieldsValues(workOrder)
         }}
         onChange={({ field, e }) => {}}
         onSubmit={async (values) => {
           let formattedValues = formatWorkOrderValues(values);
-          return new Promise<void>((resolve, rej) => {
-            //differentiate files from api and formattedValues
-            const files = formattedValues.files.find((file) => file.id)
-              ? []
-              : formattedValues.files;
-            uploadFiles(files, formattedValues.image)
-              .then((files) => {
-                const imageAndFiles = getImageAndFiles(files, workOrder.image);
-                formattedValues = {
-                  ...formattedValues,
-                  image: imageAndFiles.image,
-                  files: [...workOrder.files, ...imageAndFiles.files]
-                };
-                dispatch(
-                  //TODO editTask
-                  patchTasks(
-                    workOrder?.id,
-                    formattedValues.tasks.map((task) => {
-                      return {
-                        ...task.taskBase,
-                        options: task.taskBase.options.map(
-                          (option) => option.label
-                        )
-                      };
-                    })
-                  )
-                )
-                  .then(() =>
-                    dispatch(editWorkOrder(workOrder?.id, formattedValues))
-                      .then(onEditSuccess)
-                      .then(() => resolve())
-                      .catch((err) => {
-                        onEditFailure(err);
-                        rej();
-                      })
-                  )
-                  .catch((err) => {
-                    onEditFailure(err);
-                    rej();
-                  });
-              })
-              .catch((err) => {
-                onEditFailure(err);
-                rej();
-              });
-          });
+          formattedValues = formatCustomFields(formattedValues);
+          try {
+            const imageAndFiles = await handleFileUpload(
+              {
+                files: formattedValues.files,
+                image: formattedValues.image
+              },
+              uploadFiles
+            );
+            formattedValues = {
+              ...formattedValues,
+              image: imageAndFiles.image,
+              files: imageAndFiles.files
+            };
+            await dispatch(
+              patchTasks(
+                workOrder?.id,
+                formattedValues.tasks.map((task) => {
+                  return {
+                    ...task.taskBase,
+                    options: task.taskBase.options.map((option) => option.label)
+                  };
+                })
+              )
+            );
+            await dispatch(editWorkOrder(workOrder?.id, formattedValues));
+            onEditSuccess();
+          } catch (err) {
+            onEditFailure(err);
+            throw err;
+          }
         }}
       />
     </View>

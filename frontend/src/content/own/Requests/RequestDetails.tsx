@@ -1,4 +1,5 @@
 import {
+  Alert,
   Box,
   Button,
   CircularProgress,
@@ -39,8 +40,10 @@ import ImageViewer from 'react-simple-image-viewer';
 import { CompanySettingsContext } from '../../../contexts/CompanySettingsContext';
 import FilesList from '../components/FilesList';
 import RequestCancellationModal from './RequestCancellationModal';
+import BasicField from '../components/BasicField';
 import { editAsset } from '../../../slices/asset';
 import { AssetStatus, assetStatuses } from '../../../models/owns/asset';
+import { getCustomFieldValuesForDetails } from '../type';
 
 interface RequestDetailsProps {
   request: Request;
@@ -83,29 +86,13 @@ export default function RequestDetails({
       .finally(() => setApproving(false));
   };
 
-  const BasicField = ({
-    label,
-    value,
-    isPriority
-  }: {
-    label: string | number;
-    value: string | number;
-    isPriority?: boolean;
-  }) => {
-    return value ? (
-      <Grid item xs={12} lg={6}>
-        <Typography variant="h6" sx={{ color: theme.colors.alpha.black[70] }}>
-          {label}
-        </Typography>
-        <Typography variant="h6">
-          {isPriority ? getPriorityLabel(value.toString(), t) : value}
-        </Typography>
-      </Grid>
-    ) : null;
-  };
   const fieldsToRender = (
     request: Request
   ): { label: string; value: string | number }[] => [
+    {
+      label: t('contact'),
+      value: request.contact
+    },
     {
       label: t('description'),
       value: request.description
@@ -143,7 +130,11 @@ export default function RequestDetails({
     {
       label: t('created_at'),
       value: getFormattedDate(request.createdAt)
-    }
+    },
+    ...getCustomFieldValuesForDetails(
+      request.customFieldValues,
+      getFormattedDate
+    )
   ];
   return (
     <Grid
@@ -293,12 +284,34 @@ export default function RequestDetails({
                   />
                 </Grid>
               )}
+              {request.requestPortal && (
+                <Box
+                  sx={{
+                    mt: 1,
+                    width: '100%',
+                    display: 'flex',
+                    justifyContent: 'center'
+                  }}
+                >
+                  <Alert severity={'info'}>
+                    {t('requested_from_portal')}{' '}
+                    {
+                      <Link
+                        href={`/app/settings/features/request-portals/${request.requestPortal.id}`}
+                      >
+                        {request.requestPortal.title}
+                      </Link>
+                    }
+                  </Alert>
+                </Box>
+              )}
               {fieldsToRender(request).map((field) => (
                 <BasicField
                   key={field.label}
                   label={field.label}
                   value={field.value}
                   isPriority={field.label === t('priority')}
+                  {...field}
                 />
               ))}
               {request?.createdBy && (

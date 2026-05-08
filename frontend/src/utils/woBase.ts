@@ -1,9 +1,15 @@
 import { WorkOrderBase } from 'src/models/owns/workOrderBase';
 import { getPriorityLabel } from './formatters';
-import { IField } from '../content/own/type';
+import {
+  getCustomFieldsIFields,
+  getCustomFieldsValues,
+  IField
+} from '../content/own/type';
+import { CustomField, CustomFieldEntityType } from '../models/owns/customField';
 
 export const getWOBaseFields = (
   t: any,
+  customFields: CustomField[] = [],
   options?: { delay?: boolean }
 ): Array<IField> => {
   let result: IField[] = [
@@ -20,6 +26,22 @@ export const getWOBaseFields = (
       label: t('description'),
       placeholder: t('description'),
       multiple: true
+    },
+    {
+      name: 'location',
+      type: 'select',
+      type2: 'location',
+      label: t('location'),
+      placeholder: 'Select location'
+    },
+    {
+      name: 'asset',
+      type: 'select',
+      type2: 'asset',
+      label: t('asset'),
+      placeholder: 'Select Asset',
+      relatedFields: [{ field: 'location' }],
+      required: true
     },
     {
       name: 'priority',
@@ -52,22 +74,6 @@ export const getWOBaseFields = (
       category: 'work-order-categories'
     },
     {
-      name: 'location',
-      type: 'select',
-      type2: 'location',
-      label: t('location'),
-      placeholder: 'Select location'
-    },
-    {
-      name: 'asset',
-      type: 'select',
-      type2: 'asset',
-      label: t('asset'),
-      placeholder: 'Select Asset',
-      relatedFields: [{ field: 'location' }],
-      required: true
-    },
-    {
       name: 'primaryUser',
       type: 'select',
       label: t('primary_worker'),
@@ -92,7 +98,8 @@ export const getWOBaseFields = (
       multiple: true,
       label: t('files'),
       fileType: 'file'
-    }
+    },
+    ...getCustomFieldsIFields(customFields, CustomFieldEntityType.WORK_ORDER)
   ];
   if (options?.delay) {
     result = result.filter((field) => field.name !== 'dueDate');
@@ -110,21 +117,21 @@ export const getWOBaseValues = <T extends WorkOrderBase>(t: any, entity: T) => {
   return {
     priority: entity?.priority
       ? {
-        label: getPriorityLabel(entity?.priority, t),
-        value: entity?.priority
-      }
+          label: getPriorityLabel(entity?.priority, t),
+          value: entity?.priority
+        }
       : null,
     category: entity?.category
       ? {
-        label: entity?.category?.name,
-        value: entity?.category?.id
-      }
+          label: entity?.category?.name,
+          value: entity?.category?.id
+        }
       : null,
     primaryUser: entity?.primaryUser
       ? {
-        label: `${entity.primaryUser.firstName} ${entity.primaryUser.lastName}`,
-        value: entity.primaryUser.id.toString()
-      }
+          label: `${entity.primaryUser.firstName} ${entity.primaryUser.lastName}`,
+          value: entity.primaryUser.id.toString()
+        }
       : null,
     assignedTo: entity?.assignedTo.map((worker) => {
       return {
@@ -140,21 +147,24 @@ export const getWOBaseValues = <T extends WorkOrderBase>(t: any, entity: T) => {
     }),
     team: entity?.team
       ? {
-        label: entity.team?.name,
-        value: entity.team?.id.toString()
-      }
+          label: entity.team?.name,
+          value: entity.team?.id.toString()
+        }
       : null,
     location: entity?.location
       ? {
-        label: entity.location.name,
-        value: entity.location.id.toString()
-      }
+          label: entity.location.name,
+          value: entity.location.id.toString()
+        }
       : null,
     asset: entity?.asset
       ? {
-        label: entity.asset?.name,
-        value: entity.asset?.id.toString()
-      }
-      : null
+          label: entity.asset?.name,
+          value: entity.asset?.id.toString()
+        }
+      : null,
+    image: entity?.image,
+    files: entity?.files,
+    ...getCustomFieldsValues(entity)
   };
 };

@@ -3,14 +3,18 @@ package com.grash.service;
 import com.grash.advancedsearch.SearchCriteria;
 import com.grash.advancedsearch.SpecificationBuilder;
 import com.grash.dto.MeterPatchDTO;
+import com.grash.dto.MeterPostDTO;
 import com.grash.dto.MeterShowDTO;
+import com.grash.dto.cutomField.CustomFieldValuePostDTO;
 import com.grash.dto.imports.MeterImportDTO;
+import com.grash.dto.license.LicenseEntitlement;
 import com.grash.exception.CustomException;
 import com.grash.mapper.MeterMapper;
 import com.grash.model.*;
+import com.grash.model.enums.CustomFieldEntityType;
 import com.grash.model.enums.NotificationType;
-import com.grash.model.enums.RoleType;
 import com.grash.repository.MeterRepository;
+import com.grash.service.CustomFieldValueService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.MessageSource;
 import org.springframework.data.domain.Page;
@@ -20,9 +24,12 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import javax.persistence.EntityManager;
+import jakarta.persistence.EntityManager;
+
 import java.util.*;
 import java.util.stream.Collectors;
+
+import static com.grash.utils.Consts.usageBasedLicenseLimits;
 
 @Service
 @RequiredArgsConstructor
@@ -39,18 +46,52 @@ public class MeterService {
     private final MeterMapper meterMapper;
     private final NotificationService notificationService;
     private final ReadingService readingService;
+    private final LicenseService licenseService;
+    private final CustomFieldValueService customFieldValueService;
 
     @Transactional
-    public Meter create(Meter meter) {
+    public Meter create(Meter meter, User user) {
+        checkUsageBasedLimit(user.getCompany());
+        Company company = user.getCompany();
+        if (meter instanceof MeterPostDTO meterPostDTO) {
+            meter = meterMapper.fromPostDto(meterPostDTO);
+            if (meterPostDTO.getCustomFields() != null && !meterPostDTO.getCustomFields().isEmpty()) {
+                setMeterCustomFields(meter, meterPostDTO.getCustomFields(), company);
+            }
+        }
         Meter savedMeter = meterRepository.saveAndFlush(meter);
         em.refresh(savedMeter);
         return savedMeter;
     }
 
+    private void checkUsageBasedLimit(Company company) {
+        Integer threshold = usageBasedLicenseLimits.get(LicenseEntitlement.UNLIMITED_METERS);
+        if (!licenseService.hasEntitlement(LicenseEntitlement.UNLIMITED_METERS)
+                && meterRepository.hasMoreThan(company.getId(), threshold.longValue() - 1
+        ))
+            throw new CustomException("You need a license to add a new meter. Free Limit reached: " + threshold,
+                    HttpStatus.FORBIDDEN);
+    }
+
+    private void setMeterCustomFields(Meter meter, List<CustomFieldValuePostDTO> customFieldValuePostDTOS,
+                                      Company company) {
+        customFieldValueService.setCustomFields(
+                meter,
+                meter.getCustomFieldValues(),
+                customFieldValuePostDTOS,
+                company,
+                CustomFieldEntityType.METER,
+                cfv -> cfv.setMeter(meter)
+        );
+    }
+
     @Transactional
-    public Meter update(Long id, MeterPatchDTO meter) {
+    public Meter update(Long id, MeterPatchDTO meter, Company company) {
         if (meterRepository.existsById(id)) {
             Meter savedMeter = meterRepository.findById(id).get();
+            if (meter.getCustomFields() != null && !meter.getCustomFields().isEmpty()) {
+                setMeterCustomFields(savedMeter, meter.getCustomFields(), company);
+            }
             Meter patchedMeter = meterRepository.saveAndFlush(meterMapper.updateMeter(savedMeter, meter));
             em.refresh(patchedMeter);
             return patchedMeter;
@@ -73,6 +114,10 @@ public class MeterService {
         return meterRepository.findByCompany_Id(id);
     }
 
+    public List<Meter> findByCompanyForExport(Long companyId) {
+        return meterRepository.findByCompanyForExport(companyId);
+    }
+
     public void notify(Meter meter, Locale locale) {
         String title = messageSource.getMessage("new_assignment", null, locale);
         String message = messageSource.getMessage("notification_meter_assigned", new Object[]{meter.getName()}, locale);
@@ -87,7 +132,7 @@ public class MeterService {
         String message = messageSource.getMessage("notification_meter_assigned", new Object[]{newMeter.getName()},
                 locale);
         if (newMeter.getUsers() != null) {
-            List<OwnUser> newUsers = newMeter.getUsers().stream().filter(
+            List<User> newUsers = newMeter.getUsers().stream().filter(
                     user -> oldMeter.getUsers().stream().noneMatch(user1 -> user1.getId().equals(user.getId()))).collect(Collectors.toList());
             notificationService.createMultiple(newUsers.stream().map(newUser ->
                     new Notification(message, newUser, NotificationType.ASSET, newMeter.getId())).collect(Collectors.toList()), true, title);
@@ -118,8 +163,10 @@ public class MeterService {
     }
 
     public void importMeter(Meter meter, MeterImportDTO dto, Company company) {
+        checkUsageBasedLimit(company);
         Long companyId = company.getId();
         Long companySettingsId = company.getCompanySettings().getId();
+        meter.setCompany(company);
         meter.setName(dto.getName());
         meter.setUnit(dto.getUnit());
         meter.setUpdateFrequency(dto.getUpdateFrequency());
@@ -132,16 +179,24 @@ public class MeterService {
         Optional<MeterCategory> optionalMeterCategory =
                 meterCategoryService.findByNameIgnoreCaseAndCompanySettings(dto.getMeterCategory(), companySettingsId);
         optionalMeterCategory.ifPresent(meter::setMeterCategory);
-        List<OwnUser> users = new ArrayList<>();
+        List<User> users = new ArrayList<>();
         dto.getUsersEmails().forEach(email -> {
-            Optional<OwnUser> optionalUser1 = userService.findByEmailAndCompany(email, companyId);
+            Optional<User> optionalUser1 = userService.findByEmailAndCompany(email, companyId);
             optionalUser1.ifPresent(users::add);
         });
         meter.setUsers(users);
-        meterRepository.save(meter);
     }
 
     public Optional<Meter> findByIdAndCompany(Long id, Long companyId) {
         return meterRepository.findByIdAndCompany_Id(id, companyId);
     }
+
+    public List<Meter> saveAll(List<Meter> meters) {
+        return meterRepository.saveAll(meters);
+    }
+
+    public List<Meter> findByIdsAndCompany(List<Long> ids, Long companyId) {
+        return meterRepository.findByIdInAndCompany_Id(ids, companyId);
+    }
 }
+

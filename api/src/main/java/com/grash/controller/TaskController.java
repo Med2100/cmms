@@ -10,26 +10,27 @@ import com.grash.model.*;
 import com.grash.model.enums.TaskType;
 import com.grash.model.enums.workflow.WFMainCondition;
 import com.grash.service.*;
-import io.swagger.annotations.Api;
-import io.swagger.annotations.ApiParam;
-import io.swagger.annotations.ApiResponse;
-import io.swagger.annotations.ApiResponses;
+
+
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
+import org.jetbrains.annotations.NotNull;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
-import javax.servlet.http.HttpServletRequest;
-import javax.validation.Valid;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
+
 import java.util.*;
 import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 
 @RestController
 @RequestMapping("/tasks")
-@Api(tags = "task")
+@Tag(name = "Tasks", description = "Operations on work order tasks")
 @RequiredArgsConstructor
 @Transactional
 public class TaskController {
@@ -44,11 +45,8 @@ public class TaskController {
 
     @GetMapping("/{id}")
     @PreAuthorize("permitAll()")
-    @ApiResponses(value = {//
-            @ApiResponse(code = 500, message = "Something went wrong"),
-            @ApiResponse(code = 403, message = "Access denied"),
-            @ApiResponse(code = 404, message = "Task not found")})
-    public TaskShowDTO getById(@ApiParam("id") @PathVariable("id") Long id, HttpServletRequest req) {
+
+    public TaskShowDTO getById(@PathVariable("id") Long id, HttpServletRequest req) {
         Optional<Task> optionalTask = taskService.findById(id);
         if (optionalTask.isPresent()) {
             Task savedTask = optionalTask.get();
@@ -58,11 +56,8 @@ public class TaskController {
 
     @GetMapping("/work-order/{id}")
     @PreAuthorize("permitAll()")
-    @ApiResponses(value = {//
-            @ApiResponse(code = 500, message = "Something went wrong"),
-            @ApiResponse(code = 403, message = "Access denied"),
-            @ApiResponse(code = 404, message = "Task not found")})
-    public Collection<TaskShowDTO> getByWorkOrder(@ApiParam("id") @PathVariable("id") Long id, HttpServletRequest req) {
+
+    public Collection<TaskShowDTO> getByWorkOrder(@PathVariable("id") Long id, HttpServletRequest req) {
         Optional<WorkOrder> optionalWorkOrder = workOrderService.findById(id);
         if (optionalWorkOrder.isPresent()) {
             return taskService.findByWorkOrder(id).stream().map(taskMapper::toShowDto).collect(Collectors.toList());
@@ -71,7 +66,7 @@ public class TaskController {
 
     @GetMapping("/preventive-maintenance/{id}")
     @PreAuthorize("permitAll()")
-    public Collection<Task> getByPreventiveMaintenance(@ApiParam("id") @PathVariable("id") Long id) {
+    public Collection<Task> getByPreventiveMaintenance(@PathVariable("id") Long id) {
         Optional<PreventiveMaintenance> optionalPreventiveMaintenance = preventiveMaintenanceService.findById(id);
         if (optionalPreventiveMaintenance.isPresent()) {
             return taskService.findByPreventiveMaintenance(id);
@@ -80,66 +75,81 @@ public class TaskController {
 
     @PatchMapping("/preventive-maintenance/{id}")
     @PreAuthorize("hasRole('ROLE_CLIENT')")
-    public Collection<TaskShowDTO> createByPreventiveMaintenance(@ApiParam("Task") @Valid @RequestBody Collection<TaskBaseDTO> taskBasesReq, @ApiParam("id") @PathVariable("id") Long id, HttpServletRequest req) {
-        OwnUser user = userService.whoami(req);
+    public Collection<TaskShowDTO> createByPreventiveMaintenance(@Parameter(description = "List of task bases to " +
+                                                                         "create") @Valid @RequestBody Collection<TaskBaseDTO> taskBasesReq, @PathVariable("id") Long id,
+                                                                 HttpServletRequest req) {
+        User user = userService.whoami(req);
         Optional<PreventiveMaintenance> optionalPreventiveMaintenance = preventiveMaintenanceService.findById(id);
         if (optionalPreventiveMaintenance.isPresent() && optionalPreventiveMaintenance.get().canBeEditedBy(user)) {
-            taskService.findByPreventiveMaintenance(id).forEach(task -> taskService.delete(task.getId()));
-            Collection<TaskBase> taskBases = taskBasesReq.stream().map(taskBaseDTO ->
-                    taskBaseService.createFromTaskBaseDTO(taskBaseDTO, user.getCompany())).collect(Collectors.toList());
-            return taskBases.stream().map(taskBase -> {
+            List<Task> savedPMTasks = taskService.findByPreventiveMaintenance(id);
+            List<TaskBaseDTO> incomingTasks = new ArrayList<>(taskBasesReq);
+
+            List<Task> resultTasks = updateEntityTasks(incomingTasks, savedPMTasks, user,
+                    optionalPreventiveMaintenance.get(),
+                    null);
+
+            return resultTasks.stream()
+                    .map(taskMapper::toShowDto)
+                    .collect(Collectors.toList());
+        } else throw new CustomException("Not found", HttpStatus.NOT_FOUND);
+    }
+
+    @NotNull
+    private List<Task> updateEntityTasks(List<TaskBaseDTO> incomingTasks, List<Task> savedTasks, User user,
+                                         PreventiveMaintenance preventiveMaintenance, WorkOrder workOrder) {
+        List<Task> resultTasks = new ArrayList<>();
+        List<Task> matchedTasks = new ArrayList<>();
+
+        // Process each incoming task
+        for (TaskBaseDTO reqTaskBase : incomingTasks) {
+            // Find matching existing task by comparing task base properties
+            Task matchedTask = savedTasks.stream()
+                    .filter(task -> !matchedTasks.contains(task) && tasksMatch(task.getTaskBase(), reqTaskBase))
+                    .findFirst()
+                    .orElse(null);
+
+            if (matchedTask != null) {
+                // Task already exists - preserve it with all its data (notes, images, value)
+                matchedTasks.add(matchedTask);
+                resultTasks.add(matchedTask);
+            } else {
+                // New task - create it
+                TaskBase taskBase = taskBaseService.createFromTaskBaseDTO(reqTaskBase, user.getCompany());
                 StringBuilder value = new StringBuilder();
                 if (taskBase.getTaskType().equals(TaskType.SUBTASK)) {
                     value.append("OPEN");
                 } else if (taskBase.getTaskType().equals(TaskType.INSPECTION)) {
                     value.append("FLAG");
                 }
-                Task task = new Task(taskBase, null, optionalPreventiveMaintenance.get(), value.toString());
-                return taskService.create(task);
-            }).map(taskMapper::toShowDto).collect(Collectors.toList());
-        } else throw new CustomException("Not found", HttpStatus.NOT_FOUND);
+                Task newTask = new Task(taskBase, workOrder, preventiveMaintenance, value.toString());
+                Task createdTask = taskService.create(newTask);
+                resultTasks.add(createdTask);
+            }
+        }
+
+        // Delete tasks that are no longer in the incoming request
+        savedTasks.forEach(task -> {
+            if (!matchedTasks.contains(task)) {
+                taskService.delete(task.getId());
+            }
+        });
+        return resultTasks;
     }
 
     @PatchMapping("/work-order/{id}")
     @PreAuthorize("hasRole('ROLE_CLIENT')")
-    @ApiResponses(value = {//
-            @ApiResponse(code = 500, message = "Something went wrong"), //
-            @ApiResponse(code = 403, message = "Access denied")})
-    public List<TaskShowDTO> create(@ApiParam("Task") @Valid @RequestBody List<TaskBaseDTO> taskBasesReq,
-                                    @ApiParam("id") @PathVariable("id") Long id, HttpServletRequest req) {
-        OwnUser user = userService.whoami(req);
+    List<TaskShowDTO> create(@Parameter(description = "List of task bases to create") @Valid @RequestBody List<TaskBaseDTO> taskBasesReq,
+                             @PathVariable("id") Long id, HttpServletRequest req) {
+        User user = userService.whoami(req);
         Optional<WorkOrder> optionalWorkOrder = workOrderService.findById(id);
         if (optionalWorkOrder.isPresent() && optionalWorkOrder.get().canBeEditedBy(user)) {
             List<Task> savedWOTasks = taskService.findByWorkOrder(id);
-            boolean isSame;
-            if (savedWOTasks.size() != taskBasesReq.size()) {
-                isSame = false;
-            } else {
-                isSame = IntStream.range(0, savedWOTasks.size())
-                        .allMatch(i -> {
-                            TaskBase savedTaskBase = savedWOTasks.get(i).getTaskBase();
-                            TaskBaseDTO reqTaskBase = taskBasesReq.get(i);
-                            return tasksMatch(savedTaskBase, reqTaskBase);
-                        });
-            }
-            if (isSame) {
-                return savedWOTasks.stream()
-                        .map(taskMapper::toShowDto)
-                        .collect(Collectors.toList());
-            }
-            savedWOTasks.forEach(task -> taskService.delete(task.getId()));
-            List<TaskBase> taskBases = taskBasesReq.stream().map(taskBaseDTO ->
-                    taskBaseService.createFromTaskBaseDTO(taskBaseDTO, user.getCompany())).collect(Collectors.toList());
-            return taskBases.stream().map(taskBase -> {
-                StringBuilder value = new StringBuilder();
-                if (taskBase.getTaskType().equals(TaskType.SUBTASK)) {
-                    value.append("OPEN");
-                } else if (taskBase.getTaskType().equals(TaskType.INSPECTION)) {
-                    value.append("FLAG");
-                }
-                Task task = new Task(taskBase, optionalWorkOrder.get(), null, value.toString());
-                return taskService.create(task);
-            }).map(taskMapper::toShowDto).collect(Collectors.toList());
+
+            List<Task> resultTasks = updateEntityTasks(taskBasesReq, savedWOTasks, user, null, optionalWorkOrder.get());
+
+            return resultTasks.stream()
+                    .map(taskMapper::toShowDto)
+                    .collect(Collectors.toList());
         } else throw new CustomException("Not found", HttpStatus.NOT_FOUND);
     }
 
@@ -190,14 +200,12 @@ public class TaskController {
 
     @PatchMapping("/{id}")
     @PreAuthorize("hasRole('ROLE_CLIENT')")
-    @ApiResponses(value = {//
-            @ApiResponse(code = 500, message = "Something went wrong"), //
-            @ApiResponse(code = 403, message = "Access denied"), //
-            @ApiResponse(code = 404, message = "Task not found")})
-    public TaskShowDTO patch(@ApiParam("Task") @Valid @RequestBody TaskPatchDTO task, @ApiParam("id") @PathVariable(
+
+    public TaskShowDTO patch(@Parameter(description = "Task fields to update") @Valid @RequestBody TaskPatchDTO task,
+                             @PathVariable(
                                      "id") Long id,
                              HttpServletRequest req) {
-        OwnUser user = userService.whoami(req);
+        User user = userService.whoami(req);
         Optional<Task> optionalTask = taskService.findById(id);
 
         if (optionalTask.isPresent()) {
@@ -212,12 +220,9 @@ public class TaskController {
 
     @DeleteMapping("/{id}")
     @PreAuthorize("hasRole('ROLE_CLIENT')")
-    @ApiResponses(value = {//
-            @ApiResponse(code = 500, message = "Something went wrong"), //
-            @ApiResponse(code = 403, message = "Access denied"), //
-            @ApiResponse(code = 404, message = "Task not found")})
-    public ResponseEntity delete(@ApiParam("id") @PathVariable("id") Long id, HttpServletRequest req) {
-        OwnUser user = userService.whoami(req);
+
+    public ResponseEntity delete(@PathVariable("id") Long id, HttpServletRequest req) {
+        User user = userService.whoami(req);
 
         Optional<Task> optionalTask = taskService.findById(id);
         if (optionalTask.isPresent()) {
@@ -228,3 +233,5 @@ public class TaskController {
     }
 
 }
+
+

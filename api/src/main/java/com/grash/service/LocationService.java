@@ -3,14 +3,19 @@ package com.grash.service;
 import com.grash.advancedsearch.SearchCriteria;
 import com.grash.advancedsearch.SpecificationBuilder;
 import com.grash.dto.LocationPatchDTO;
+import com.grash.dto.LocationPostDTO;
 import com.grash.dto.LocationShowDTO;
+import com.grash.dto.cutomField.CustomFieldValuePostDTO;
 import com.grash.dto.imports.LocationImportDTO;
+import com.grash.dto.license.LicenseEntitlement;
 import com.grash.exception.CustomException;
 import com.grash.mapper.LocationMapper;
 import com.grash.model.*;
+import com.grash.model.enums.CustomFieldEntityType;
 import com.grash.model.enums.NotificationType;
-import com.grash.model.enums.RoleType;
+import com.grash.model.enums.webhook.WebhookEvent;
 import com.grash.repository.LocationRepository;
+import com.grash.service.CustomFieldValueService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.MessageSource;
 import org.springframework.data.domain.Page;
@@ -21,9 +26,12 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import javax.persistence.EntityManager;
+import jakarta.persistence.EntityManager;
+
 import java.util.*;
 import java.util.stream.Collectors;
+
+import static com.grash.utils.Consts.usageBasedLicenseLimits;
 
 @Service
 @RequiredArgsConstructor
@@ -40,25 +48,53 @@ public class LocationService {
     private final EntityManager em;
     private final FileService fileService;
     private final CustomSequenceService customSequenceService;
+    private final LicenseService licenseService;
+    private final WebhookDispatchService webhookDispatchService;
+    private final CustomFieldValueService customFieldValueService;
 
     @Transactional
     public Location create(Location location, Company company) {
+        checkUsageBasedLimit(company);
+        if (location instanceof LocationPostDTO locationPostDTO) {
+            location = locationMapper.fromPostDto(locationPostDTO);
+            if (locationPostDTO.getCustomFields() != null && !locationPostDTO.getCustomFields().isEmpty()) {
+                setLocationCustomFields(location, locationPostDTO.getCustomFields(), company);
+            }
+        }
         location.setCustomId(getLocationNumber(company));
 
         Location savedLocation = locationRepository.saveAndFlush(location);
         em.refresh(savedLocation);
+        Map<String, Object> webhookPayload = new HashMap<>();
+        webhookPayload.put("locationId", savedLocation.getId());
+        Object serializedLocation = locationMapper.toShowDto(savedLocation, this);
+        webhookDispatchService.dispatchWebhook(company, WebhookEvent.NEW_LOCATION, webhookPayload,
+                "newLocation", serializedLocation, null, null, null, null, null);
         return savedLocation;
     }
 
     @Transactional
-    public Location update(Long id, LocationPatchDTO location) {
+    public Location update(Long id, LocationPatchDTO location, Company company) {
         if (locationRepository.existsById(id)) {
             Location savedLocation = locationRepository.findById(id).get();
+            if (location.getCustomFields() != null && !location.getCustomFields().isEmpty()) {
+                setLocationCustomFields(savedLocation, location.getCustomFields(), company);
+            }
             Location patchedLocation = locationRepository.saveAndFlush(locationMapper.updateLocation(savedLocation,
                     location));
             em.refresh(patchedLocation);
             return patchedLocation;
         } else throw new CustomException("Not found", HttpStatus.NOT_FOUND);
+    }
+
+    private void checkUsageBasedLimit(Company company) {
+        Integer threshold = usageBasedLicenseLimits.get(LicenseEntitlement.UNLIMITED_LOCATIONS);
+        if (!licenseService.hasEntitlement(LicenseEntitlement.UNLIMITED_LOCATIONS)
+                && locationRepository.hasMoreThan(company.getId(), threshold.longValue() - 1
+        ))
+            throw new CustomException("You need a license to add a new location. Free Limit reached: " + threshold,
+                    HttpStatus.FORBIDDEN);
+
     }
 
     public Collection<Location> getAll() {
@@ -75,6 +111,10 @@ public class LocationService {
 
     public Collection<Location> findByCompany(Long id) {
         return locationRepository.findByCompany_Id(id);
+    }
+
+    public List<Location> findByCompanyForExport(Long companyId) {
+        return locationRepository.findByCompanyForExport(companyId);
     }
 
     public List<Location> findByCompany(Long id, Sort sort) {
@@ -107,8 +147,24 @@ public class LocationService {
         return "L" + String.format("%06d", nextSequence);
     }
 
+    private void setLocationCustomFields(Location location, List<CustomFieldValuePostDTO> customFieldValuePostDTOS,
+                                         Company company) {
+        customFieldValueService.setCustomFields(
+                location,
+                location.getCustomFieldValues(),
+                customFieldValuePostDTOS,
+                company,
+                CustomFieldEntityType.LOCATION,
+                cfv -> cfv.setLocation(location)
+        );
+    }
+
     public void save(Location location) {
         locationRepository.save(location);
+    }
+
+    public List<Location> saveAll(List<Location> locations) {
+        return locationRepository.saveAll(locations);
     }
 
     public boolean isLocationInCompany(Location location, long companyId, boolean optional) {
@@ -125,18 +181,27 @@ public class LocationService {
         return locationRepository.findByNameIgnoreCaseAndCompany_Id(locationName, companyId);
     }
 
-    public void importLocation(Location location, LocationImportDTO dto, Company company) {
+    public void setLocationFieldsFromImportDto(Location location, LocationImportDTO dto, Company company,
+                                               Map<String, Location> locationsByName) {
+        checkUsageBasedLimit(company);
         Long companyId = company.getId();
+        location.setCompany(company);
         location.setName(dto.getName());
         location.setAddress(dto.getAddress());
         location.setLongitude(dto.getLongitude());
         location.setLatitude(dto.getLatitude());
-        Optional<Location> optionalLocation =
-                findByNameIgnoreCaseAndCompany(dto.getParentLocationName(), companyId).stream().findFirst();
-        optionalLocation.ifPresent(location::setParentLocation);
-        List<OwnUser> workers = new ArrayList<>();
+        // Check parent location in batch first, then in database
+        if (dto.getParentLocationName() != null && !dto.getParentLocationName().isEmpty()) {
+            Location parentLocation = locationsByName != null ? locationsByName.get(dto.getParentLocationName()) : null;
+            if (parentLocation == null) {
+                parentLocation = findByNameIgnoreCaseAndCompany(dto.getParentLocationName(), companyId)
+                        .stream().findFirst().orElse(null);
+            }
+            location.setParentLocation(parentLocation);
+        }
+        List<User> workers = new ArrayList<>();
         dto.getWorkersEmails().forEach(email -> {
-            Optional<OwnUser> optionalUser1 = userService.findByEmailAndCompany(email, companyId);
+            Optional<User> optionalUser1 = userService.findByEmailAndCompany(email, companyId);
             optionalUser1.ifPresent(workers::add);
         });
         location.setWorkers(workers);
@@ -159,11 +224,15 @@ public class LocationService {
             optionalVendor.ifPresent(vendors::add);
         });
         location.setVendors(vendors);
-        locationRepository.save(location);
+//        locationRepository.save(location);
     }
 
     public Optional<Location> findByIdAndCompany(Long id, Long companyId) {
         return locationRepository.findByIdAndCompany_Id(id, companyId);
+    }
+
+    public List<Location> findByIdsAndCompany(List<Long> ids, Long companyId) {
+        return locationRepository.findByIdInAndCompany_Id(ids, companyId);
     }
 
     public Page<LocationShowDTO> findBySearchCriteria(SearchCriteria searchCriteria) {
@@ -238,3 +307,4 @@ public class LocationService {
         return locationRepository.countByParentLocation_Id(locationId) > 0;
     }
 }
+

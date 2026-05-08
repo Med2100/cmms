@@ -1372,6 +1372,15 @@ const locale = {
   power: 'قوة',
   library: 'مكتبة',
   camera: 'آلة تصوير',
+  media_library: 'مكتبة الصور',
+  permission_required_title: 'الإذن مطلوب',
+  permission_required_message:
+    'مطلوب إذن الوصول إلى {{permission}}. يرجى تفعيله من إعدادات التطبيق.',
+  permission_denied_title: 'تم رفض الإذن',
+  permission_denied_message: 'مطلوب إذن الوصول إلى {{permission}} للمتابعة.',
+  unable_to_request_permission: 'تعذر طلب إذن {{permission}}.',
+  open_settings: 'فتح الإعدادات',
+  ok: 'حسناً',
   CANCELLED: 'مرفوض',
   max_file_size_error: 'لا ينبغي أن يكون حجم الملف أكبر من {{size}} ميجابايت',
   assignedToUser: 'عملي',
@@ -1404,7 +1413,13 @@ const locale = {
   top_level: 'المستوى الأعلى',
   no_results_found: 'لم يتم العثور على نتائج',
   no_sub_assets: 'لا توجد أصول فرعية',
-  no_assets_available: 'لا توجد أصول متاحة'
+  no_assets_available: 'لا توجد أصول متاحة',
+  asset_not_found: 'الأصل غير موجود',
+  comments: 'التعليقات',
+  no_comments: 'لا توجد تعليقات بعد. كن أول من يعلق!',
+  post_comment: 'نشر تعليق',
+  confirm_delete_comment: 'هل أنت متأكد أنك تريد حذف هذا التعليق؟',
+  add_comment_placeholder: 'أضف تعليقًا...'
 };
 
 export default locale;

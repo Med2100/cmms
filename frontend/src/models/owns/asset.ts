@@ -7,6 +7,7 @@ import Location from './location';
 import { CustomerMiniDTO } from './customer';
 import File, { FileMiniDTO } from './file';
 import Category from './category';
+import { CustomFieldValue } from './customField';
 
 export default interface Asset extends Audit {
   id: number;
@@ -58,10 +59,13 @@ export interface AssetDTO extends Audit {
   power: string;
   manufacturer: string;
   customId: string;
+  customFieldValues?: CustomFieldValue[];
 }
 export interface AssetRow extends AssetDTO {
-  hierarchy: number[];
   childrenFetched?: boolean;
+  showMoreButton?: boolean;
+  isLoadMoreRow?: boolean;
+  depth?: number;
 }
 export interface AssetMiniDTO {
   id: number;

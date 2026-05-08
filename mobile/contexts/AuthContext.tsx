@@ -47,6 +47,8 @@ import { AssetDTO } from '../models/asset';
 import Location from '../models/location';
 import { UiConfiguration } from '../models/uiConfiguration';
 import Constants from 'expo-constants';
+import moment from 'moment-timezone';
+import { getCustomFields } from '../slices/customField';
 
 interface AuthState {
   isInitialized: boolean;
@@ -61,7 +63,7 @@ export type FieldConfigurationsType = 'workOrder' | 'request';
 
 interface AuthContextValue extends AuthState {
   method: 'JWT';
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string, ldap?: boolean) => Promise<void>;
   logout: () => void;
   register: (values: any) => Promise<void>;
   getInfos: () => void;
@@ -467,7 +469,8 @@ const reducer = (state: AuthState, action: Action): AuthState =>
 const AuthContext = createContext<AuthContextValue>({
   ...initialAuthState,
   method: 'JWT',
-  login: () => Promise.resolve(),
+  login: (email?: string, password?: string, ldap?: boolean) =>
+    Promise.resolve(),
   logout: () => Promise.resolve(),
   register: () => Promise.resolve(),
   getInfos: () => Promise.resolve(),
@@ -662,6 +665,7 @@ export const AuthProvider: FC<AuthProviderProps> = (props) => {
       lng: companySettings.generalPreferences.language.toLowerCase()
     });
     checkPushNotificationState();
+    globalDispatch(getCustomFields());
   };
   const getInfos = async (): Promise<void> => {
     // AsyncStorage.clear();
@@ -729,14 +733,23 @@ export const AuthProvider: FC<AuthProviderProps> = (props) => {
       }
     });
   };
-  const login = async (email: string, password: string): Promise<void> => {
+  const login = async (
+    email: string,
+    password: string,
+    ldap?: boolean
+  ): Promise<void> => {
     const response = await api.post<{ accessToken: string }>(
-      'auth/signin',
-      {
-        email,
-        type: 'client',
-        password
-      },
+      `auth/signin${ldap ? '-ldap' : ''}`,
+      ldap
+        ? {
+            username: email,
+            password
+          }
+        : {
+            email,
+            type: 'client',
+            password
+          },
       { headers: await authHeader(true) }
     );
     const { accessToken } = response;
@@ -753,16 +766,17 @@ export const AuthProvider: FC<AuthProviderProps> = (props) => {
       return;
     }
 
-    await api.patch<UserResponseDTO>(
-      `users/soft-delete/${state.user.id}`,
-      state.user
-    );
+    await api.deletes<{ success: boolean }>(`auth`);
   };
 
   const register = async (values): Promise<void> => {
     const response = await api.post<{ message: string; success: boolean }>(
       'auth/signup',
-      values,
+      {
+        ...values,
+        timeZone: moment.tz.guess(),
+        utmParams: { referrer: `${Platform.OS}_app` }
+      },
       { headers: await authHeader(true) }
     );
     const { message, success } = response;
@@ -898,7 +912,7 @@ export const AuthProvider: FC<AuthProviderProps> = (props) => {
     });
   };
   const fetchCompany = async (): Promise<void> => {
-    const company = await api.get<Company>(state.user.companyId);
+    const company = await api.get<Company>(`company/${state.user.companyId}`);
     dispatch({
       type: 'GET_COMPANY',
       payload: {

@@ -1459,6 +1459,17 @@ const locale = {
   power: 'Potencia',
   library: 'Biblioteca',
   camera: 'Cámara',
+  media_library: 'Biblioteca de fotos',
+  permission_required_title: 'Permiso requerido',
+  permission_required_message:
+    'Se necesita acceso a {{permission}}. Actívalo en la configuración de la aplicación.',
+  permission_denied_title: 'Permiso denegado',
+  permission_denied_message:
+    'Se necesita acceso a {{permission}} para continuar.',
+  unable_to_request_permission:
+    'No se pudo solicitar el permiso de {{permission}}.',
+  open_settings: 'Abrir configuración',
+  ok: 'OK',
   CANCELLED: 'Rechazado',
   max_file_size_error: 'El tamaño del archivo no debe ser mayor a {{size}} MB',
   assignedToUser: 'Mi trabajo',
@@ -1492,7 +1503,12 @@ const locale = {
   top_level: 'Nivel superior',
   no_results_found: 'No se encontraron resultados',
   no_sub_assets: 'Sin subactivos',
-  no_assets_available: 'No hay activos disponibles'
+  no_assets_available: 'No hay activos disponibles',
+  asset_not_found: 'Activo no encontrado',
+  comments: 'Comentarios',
+  no_comments: 'Aún no hay comentarios. ¡Sé el primero en comentar!',
+  post_comment: 'Publicar comentario',
+  confirm_delete_comment: '¿Está seguro de que desea eliminar este comentario?',
+  add_comment_placeholder: 'Añadir un comentario...'
 };
-
 export default locale;

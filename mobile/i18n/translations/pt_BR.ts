@@ -1476,6 +1476,17 @@ const ptBRJSON = {
   power: 'Potência',
   library: 'Biblioteca',
   camera: 'Câmera',
+  media_library: 'Biblioteca de fotos',
+  permission_required_title: 'Permissão necessária',
+  permission_required_message:
+    'O acesso a {{permission}} é necessário. Ative-o nas configurações do aplicativo.',
+  permission_denied_title: 'Permissão negada',
+  permission_denied_message:
+    'O acesso a {{permission}} é necessário para continuar.',
+  unable_to_request_permission:
+    'Não foi possível solicitar a permissão de {{permission}}.',
+  open_settings: 'Abrir configurações',
+  ok: 'OK',
   CANCELLED: 'Rejeitado',
   max_file_size_error:
     'O tamanho do arquivo não deve ser maior que {{size}} MB',
@@ -1509,7 +1520,13 @@ const ptBRJSON = {
   top_level: 'Nível superior',
   no_results_found: 'Nenhum resultado encontrado',
   no_sub_assets: 'Sem subativos',
-  no_assets_available: 'Nenhum ativo disponível'
+  no_assets_available: 'Nenhum ativo disponível',
+  asset_not_found: 'Ativo não encontrado',
+  comments: 'Comentários',
+  no_comments: 'Ainda não há comentários. Seja o primeiro a comentar!',
+  post_comment: 'Publicar comentário',
+  confirm_delete_comment: 'Tem certeza de que deseja excluir este comentário?',
+  add_comment_placeholder: 'Adicionar um comentário...'
 };
 
 export default ptBRJSON;
